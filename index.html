@@ -10,6 +10,9 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@photo-sphere-viewer/virtual-tour-plugin/index.min.css" />
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@photo-sphere-viewer/gallery-plugin/index.min.css" />
 
+<!-- 부드러운 드래그 정렬 -->
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { background: #000; }
@@ -99,30 +102,22 @@
   .card:hover .delete-btn { opacity: 1; }
   .card .delete-btn:hover { background: rgba(220,50,50,0.9); }
 
-  /* ===== 드래그 정렬 ===== */
-  .card.dragging { opacity: 0.3; pointer-events: none; }
-  .card.drop-before::before,
-  .card.drop-after::after {
-    content: '';
-    position: absolute;
-    top: 0; bottom: 0;
-    width: 3px;
-    background: #fff;
-    z-index: 20;
-    pointer-events: none;
+  /* ===== 드래그 정렬 (SortableJS) ===== */
+  /* 드롭될 자리를 보여주는 placeholder */
+  .card.sortable-ghost {
+    opacity: 0.4;
+    background: #1a1a1a;
   }
-  .card.drop-before::before { left: 0; }
-  .card.drop-after::after  { right: 0; }
-  #drag-ghost {
-    position: fixed;
-    pointer-events: none;
-    z-index: 9999;
-    border-radius: 4px;
-    overflow: hidden;
+  .card.sortable-ghost img,
+  .card.sortable-ghost .label { visibility: hidden; }
+  /* 실제로 마우스를 따라다니는 카드 */
+  .card.sortable-drag {
+    opacity: 1 !important;
     box-shadow: 0 16px 48px rgba(0,0,0,0.8);
-    opacity: 0.88;
-    transform: scale(1.04) rotate(1deg);
+    cursor: grabbing;
   }
+  /* 집어든 카드 살짝 강조 */
+  .card.sortable-chosen { z-index: 30; }
 
   .viewer {
     display: none;
@@ -563,112 +558,42 @@ function getAllProjects() {
 }
 
 /* ============================================================
-   마우스 추적 드래그 정렬
+   부드러운 드래그 정렬 (SortableJS)
+   - 드래그 중 다른 카드들이 실시간으로 밀려나는 애니메이션
+   - onEnd에서 순서만 저장 (DOM은 Sortable이 직접 이동시킴)
 ============================================================ */
-const DRAG_THRESHOLD = 6;
-const drag = {
-  pending: false, active: false, justDragged: false,
-  projId: null, cardEl: null, ghost: null,
-  startX: 0, startY: 0, offsetX: 0, offsetY: 0,
-  dropTarget: null, dropAfter: false
-};
+let sortable = null;
+let justDragged = false;   // 드래그 직후 click이 뷰어를 여는 것 방지
 
-function prepareDrag(e, projId, cardEl) {
-  if (e.button !== undefined && e.button !== 0) return;
-  const cx = e.touches ? e.touches[0].clientX : e.clientX;
-  const cy = e.touches ? e.touches[0].clientY : e.clientY;
-  const rect = cardEl.getBoundingClientRect();
-  Object.assign(drag, {
-    pending: true, active: false, projId, cardEl,
-    startX: cx, startY: cy,
-    offsetX: cx - rect.left, offsetY: cy - rect.top
+function initSortable() {
+  const gallery = document.getElementById("gallery");
+  if (sortable) { sortable.destroy(); sortable = null; }
+  if (typeof Sortable === "undefined") return;   // 라이브러리 로드 실패 시 정렬만 비활성
+
+  sortable = Sortable.create(gallery, {
+    animation: 180,                 // 밀려나는 전환 시간(ms)
+    easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+    forceFallback: true,            // 네이티브 DnD 끄고 Sortable 자체 렌더 → 카드가 커서를 부드럽게 따라옴
+    fallbackTolerance: 4,           // 이만큼 움직여야 드래그 시작(클릭과 구분)
+    delay: 120,                     // 터치: 살짝 누른 뒤 드래그 → 스크롤/탭과 구분
+    delayOnTouchOnly: true,
+    touchStartThreshold: 5,
+    ghostClass: "sortable-ghost",
+    chosenClass: "sortable-chosen",
+    dragClass: "sortable-drag",
+    filter: ".delete-btn, .rename-btn",   // 이 버튼들에선 드래그 시작 안 함
+    onStart: () => { justDragged = false; },
+    onEnd: (evt) => {
+      // 순서가 실제로 바뀌었으면 저장
+      if (evt.oldIndex !== evt.newIndex) {
+        justDragged = true;
+        setTimeout(() => { justDragged = false; }, 0);
+        const ids = [...gallery.querySelectorAll(".card")].map(c => c.dataset.id);
+        saveOrder(ids);
+      }
+    },
   });
 }
-
-function activateDrag(cx, cy) {
-  drag.pending = false;
-  drag.active  = true;
-  drag.cardEl.classList.add("dragging");
-
-  const rect = drag.cardEl.getBoundingClientRect();
-  const ghost = drag.cardEl.cloneNode(true);
-  ghost.id = "drag-ghost";
-  ghost.style.cssText = `width:${rect.width}px;height:${rect.height}px;left:${cx - drag.offsetX}px;top:${cy - drag.offsetY}px`;
-  document.body.appendChild(ghost);
-  drag.ghost = ghost;
-}
-
-function onDragMove(e) {
-  const cx = e.touches ? e.touches[0].clientX : e.clientX;
-  const cy = e.touches ? e.touches[0].clientY : e.clientY;
-
-  if (drag.pending) {
-    if (Math.hypot(cx - drag.startX, cy - drag.startY) >= DRAG_THRESHOLD) {
-      e.preventDefault();
-      activateDrag(cx, cy);
-    }
-    return;
-  }
-  if (!drag.active) return;
-  e.preventDefault();
-
-  drag.ghost.style.left = (cx - drag.offsetX) + "px";
-  drag.ghost.style.top  = (cy - drag.offsetY)  + "px";
-
-  clearDropIndicators();
-  let nearest = null, nearestDist = Infinity;
-  document.querySelectorAll(".card:not(.dragging)").forEach(card => {
-    const r = card.getBoundingClientRect();
-    const dist = Math.hypot(cx - (r.left + r.width/2), cy - (r.top + r.height/2));
-    if (dist < nearestDist) {
-      nearestDist = dist;
-      nearest = card;
-      drag.dropAfter = cx > r.left + r.width / 2;
-    }
-  });
-  drag.dropTarget = nearest;
-  if (nearest) nearest.classList.add(drag.dropAfter ? "drop-after" : "drop-before");
-}
-
-function onDragEnd() {
-  if (!drag.pending && !drag.active) return;
-  const wasActive = drag.active;
-  drag.pending = drag.active = false;
-
-  if (drag.ghost) { drag.ghost.remove(); drag.ghost = null; }
-  document.querySelectorAll(".card.dragging").forEach(c => c.classList.remove("dragging"));
-  clearDropIndicators();
-
-  if (wasActive && drag.dropTarget) {
-    const ids = getAllProjects().map(p => p.id);
-    const fromIdx = ids.indexOf(drag.projId);
-    const toId = drag.dropTarget.dataset.id;
-    let toIdx = ids.indexOf(toId);
-    if (fromIdx !== -1 && toIdx !== -1 && fromIdx !== toIdx) {
-      if (drag.dropAfter) toIdx++;
-      ids.splice(fromIdx, 1);
-      ids.splice(toIdx > fromIdx ? toIdx - 1 : toIdx, 0, drag.projId);
-      saveOrder(ids);
-    }
-  }
-  drag.dropTarget = null;
-  if (wasActive) {
-    // mouseup 직후 발생하는 click이 뷰어를 열지 않도록 잠깐 막음
-    drag.justDragged = true;
-    setTimeout(() => { drag.justDragged = false; }, 0);
-    renderGallery();
-  }
-}
-
-function clearDropIndicators() {
-  document.querySelectorAll(".drop-before,.drop-after").forEach(el =>
-    el.classList.remove("drop-before","drop-after"));
-}
-
-document.addEventListener("mousemove", onDragMove);
-document.addEventListener("mouseup",   onDragEnd);
-document.addEventListener("touchmove", onDragMove, { passive: false });
-document.addEventListener("touchend",  onDragEnd);
 
 /* ============================================================
    갤러리 렌더링
@@ -687,18 +612,8 @@ function renderGallery() {
     const card = document.createElement("div");
     card.className = "card";
     card.dataset.id = project.id;
-    card.addEventListener("mousedown", e => {
-      if (e.target.classList.contains("delete-btn")) return;
-      if (e.target.classList.contains("rename-btn")) return;
-      prepareDrag(e, project.id, card);
-    });
-    card.addEventListener("touchstart", e => {
-      if (e.target.classList.contains("delete-btn")) return;
-      if (e.target.classList.contains("rename-btn")) return;
-      prepareDrag(e, project.id, card);
-    }, { passive: false });
     card.onclick = (e) => {
-      if (drag.active || drag.justDragged) return;
+      if (justDragged) return;   // 드래그 직후 클릭 무시
       if (e.target.classList.contains("delete-btn")) return;
       if (e.target.classList.contains("rename-btn")) return;
       openViewer(project.id);
@@ -738,6 +653,8 @@ function renderGallery() {
 
   const clearBtn = document.getElementById("clearBtn");
   clearBtn.classList.toggle("show", uploadedProjects.length > 0);
+
+  initSortable();   // 카드 다시 그릴 때마다 드래그 정렬 재바인딩
 }
 
 /* VR 뷰어 */
@@ -798,10 +715,20 @@ function openViewer(projectId) {
         VirtualTourPlugin.withConfig({
           positionMode: 'manual',
           preload: true,      // 인접 공간 미리 로드 → 이동 시 로딩 줄임
-          transitionOptions: {
-            speed: '12rpm',
-            effect: 'fade',   // 페이드로 부드럽게 전환
-            rotation: false,  // 바닥 화살표 쪽으로 카메라 안 돌림(바닥 안 봄)
+          // 전환을 콜백으로 정밀 제어:
+          //  - 클릭한 바닥 화살표의 "방향(yaw)"으로 천천히 회전하며 페이드 → 걸어 들어가는 느낌
+          //  - 단, pitch는 0(수평)으로 도착 → 바닥을 먼저 보지 않음
+          transitionOptions: (toNode, fromNode, fromLink) => {
+            let yaw = 0;
+            const pos = fromLink && fromLink.position;
+            if (pos && pos.yaw != null) yaw = pos.yaw;          // "90deg" 같은 문자열/숫자 그대로
+            return {
+              showLoader: false,
+              effect: 'fade',
+              speed: '8rpm',                  // 느리게 → 순간이동이 아니라 천천히 이동하는 느낌 (숫자↓ = 더 느림)
+              rotation: false,                // 바닥(아래) 화살표 쪽으로 카메라 안 꺾임
+              rotateTo: { yaw: yaw, pitch: 0 }, // 진행 방향 + 수평으로 도착
+            };
           },
         }),
       ],
@@ -823,10 +750,8 @@ function openViewer(projectId) {
 
     tourPlugin.addEventListener('node-changed', ({ node }) => {
       document.getElementById("viewerTitle").textContent = project.title + " · " + (node.name || node.id);
-      // 공간 이동 직후 시선을 수평으로 정렬 (animate는 자동회전에 막혀서 rotate로 즉시)
-      setTimeout(() => {
-        if (psv) { const p = psv.getPosition(); psv.rotate({ yaw: p.yaw, pitch: 0 }); }
-      }, 150);
+      // 시선 정렬은 transitionOptions의 rotateTo(pitch:0)가 이미 처리 → 사후 rotate 불필요
+      // (이전의 150ms 후 rotate가 "바닥→수평으로 올라오는" 움직임의 원인이었음)
     });
   } catch (e) {
     console.error("뷰어 생성 실패:", e);
