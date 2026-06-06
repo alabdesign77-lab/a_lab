@@ -454,6 +454,16 @@ let uploadedProjects = await loadFromStorage();
 ============================================================ */
 const baseProjects = [
   {
+    id: "proj_10",
+    title: "테스트",                   // ← 프로젝트명 (원하는 이름으로 바꾸세요)
+    scenes: [
+      { id: "s_10_1", title: "공간 1", panorama: "p10-1.jpg", thumb: "p10-1.jpg",
+        links: [ { nodeId: "s_10_2", position: { yaw: "90deg",  pitch: "-30deg" } } ] },
+      { id: "s_10_2", title: "공간 2", panorama: "p10-2.jpg", thumb: "p10-2.jpg",
+        links: [ { nodeId: "s_10_1", position: { yaw: "270deg", pitch: "-30deg" } } ] },
+    ]
+  },
+  {
     id: "proj_sample",
     title: "샘플 모델하우스",          // ← 프로젝트명 (원하는 이름으로 바꾸세요)
     scenes: [
