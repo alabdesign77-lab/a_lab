@@ -596,6 +596,12 @@ function openViewer(projectId) {
         }),
         VirtualTourPlugin.withConfig({
           positionMode: 'manual',
+          // 공간 전환을 부드럽게 (페이드 + 회전 정렬)
+          transitionOptions: {
+            speed: '12rpm',   // 낮을수록 천천히 부드럽게
+            fadeIn: true,     // 화면 서서히 나타남
+            rotation: true,   // 바라보던 방향으로 자연스럽게 회전
+          },
         }),
       ],
       defaultZoomLvl: startZoom,
@@ -616,6 +622,10 @@ function openViewer(projectId) {
 
     tourPlugin.addEventListener('node-changed', ({ node }) => {
       document.getElementById("viewerTitle").textContent = project.title + " · " + (node.name || node.id);
+      // 공간 이동 직후 시선이 바닥을 보지 않도록 수평으로 정렬
+      setTimeout(() => {
+        if (psv) psv.animate({ pitch: 0, speed: '4rpm' });
+      }, 200);
     });
   } catch (e) {
     console.error("뷰어 생성 실패:", e);
