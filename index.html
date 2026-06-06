@@ -67,6 +67,21 @@
     backdrop-filter: blur(4px);
     vertical-align: middle;
   }
+  .card .label .rename-btn {
+    margin-left: 10px;
+    font-size: 11px;
+    color: rgba(255,255,255,0.65);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-family: inherit;
+    text-decoration: underline;
+    opacity: 0;
+    transition: opacity 0.2s;
+    vertical-align: middle;
+  }
+  .card:hover .label .rename-btn { opacity: 1; }
+  .card .label .rename-btn:hover { color: #fff; }
   .card .delete-btn {
     position: absolute;
     top: 10px; right: 10px;
@@ -157,18 +172,18 @@
 
   .upload-btn {
     position: fixed;
-    bottom: 30px; left: 30px;
+    bottom: 24px; left: 24px;
     background: rgba(255,255,255,0.08);
     backdrop-filter: blur(10px);
     border: 1px solid rgba(255,255,255,0.15);
     color: #fff;
-    padding: 12px 22px;
+    padding: 7px 14px;
     border-radius: 999px;
-    font-size: 13px;
+    font-size: 12px;
     cursor: pointer;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 7px;
     z-index: 500;
     font-family: inherit;
   }
@@ -284,7 +299,7 @@
 
 <button class="upload-btn" onclick="document.getElementById('fileInput').click()">
   <span class="dot-indicator"></span>
-  ⬆ 프로젝트 업로드 (여러 장 = 한 집)
+  Upload
 </button>
 <input type="file" id="fileInput" accept="image/*" multiple />
 
@@ -484,8 +499,21 @@ const baseProjects = [
   },
 ];
 
+/* 프로젝트 제목을 화면에서 직접 수정 → localStorage에 저장(새로고침해도 유지) */
+function loadTitleOverrides() {
+  try { return JSON.parse(localStorage.getItem("vr_title_overrides") || "{}"); }
+  catch (e) { return {}; }
+}
+let titleOverrides = loadTitleOverrides();
+function saveTitleOverrides() {
+  localStorage.setItem("vr_title_overrides", JSON.stringify(titleOverrides));
+}
+
 function getAllProjects() {
-  return [...baseProjects, ...uploadedProjects];
+  return [...baseProjects, ...uploadedProjects].map(p => ({
+    ...p,
+    title: (titleOverrides[p.id] != null ? titleOverrides[p.id] : p.title)
+  }));
 }
 
 /* ============================================================
@@ -512,7 +540,7 @@ function renderGallery() {
     card.innerHTML = `
       <img src="${thumbSrc}" alt="${project.title}" />
       ${isUploaded ? `<button class="delete-btn" data-id="${project.id}">✕</button>` : ""}
-      <div class="label">${project.title}<span class="count">${count}컷</span></div>
+      <div class="label">${project.title}<button class="rename-btn" data-id="${project.id}">edit</button><span class="count">${count}</span></div>
     `;
     gallery.appendChild(card);
   });
@@ -524,6 +552,19 @@ function renderGallery() {
       if (!confirm("이 프로젝트를 삭제할까요?")) return;
       uploadedProjects = uploadedProjects.filter(p => p.id !== id);
       await deleteOne(id);
+      renderGallery();
+    };
+  });
+
+  gallery.querySelectorAll(".rename-btn").forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.id;
+      const cur = getAllProjects().find(p => p.id === id);
+      const v = prompt("프로젝트 이름", cur ? cur.title : "");
+      if (v === null) return;
+      titleOverrides[id] = v.trim();
+      saveTitleOverrides();
       renderGallery();
     };
   });
@@ -589,11 +630,11 @@ function openViewer(projectId) {
         }),
         VirtualTourPlugin.withConfig({
           positionMode: 'manual',
-          // 공간 전환을 부드럽게 (페이드 + 회전 정렬)
+          preload: true,      // 인접 공간 미리 로드 → 이동 시 로딩 줄임
           transitionOptions: {
-            speed: '12rpm',   // 낮을수록 천천히 부드럽게
-            fadeIn: true,     // 화면 서서히 나타남
-            rotation: true,   // 바라보던 방향으로 자연스럽게 회전
+            speed: '12rpm',
+            effect: 'fade',   // 페이드로 부드럽게 전환
+            rotation: false,  // 바닥 화살표 쪽으로 카메라 안 돌림(바닥 안 봄)
           },
         }),
       ],
@@ -615,10 +656,10 @@ function openViewer(projectId) {
 
     tourPlugin.addEventListener('node-changed', ({ node }) => {
       document.getElementById("viewerTitle").textContent = project.title + " · " + (node.name || node.id);
-      // 공간 이동 직후 시선이 바닥을 보지 않도록 수평으로 정렬
+      // 공간 이동 직후 시선을 수평으로 정렬 (animate는 자동회전에 막혀서 rotate로 즉시)
       setTimeout(() => {
-        if (psv) psv.animate({ pitch: 0, speed: '4rpm' });
-      }, 200);
+        if (psv) { const p = psv.getPosition(); psv.rotate({ yaw: p.yaw, pitch: 0 }); }
+      }, 150);
     });
   } catch (e) {
     console.error("뷰어 생성 실패:", e);
