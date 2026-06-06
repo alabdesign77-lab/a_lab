@@ -58,6 +58,15 @@
     text-shadow: 0 1px 4px rgba(0,0,0,0.9);
     z-index: 2;
   }
+  .card .label .count {
+    margin-left: 8px;
+    font-size: 11px;
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.2);
+    backdrop-filter: blur(4px);
+    vertical-align: middle;
+  }
   .card .delete-btn {
     position: absolute;
     top: 10px; right: 10px;
@@ -222,7 +231,21 @@
   }
   /* Three.js 렌더된 3D 메시 화살표용 (canvas 내부) - 색상 조정 */
 
-  /* ===== 모바일 대응 ===== */
+  /* ===== 반응형 갤러리 (웹 5칸 / 태블릿 3칸 / 폰 2칸) ===== */
+  @media (max-width: 1100px) {
+    .gallery {
+      grid-template-columns: repeat(3, 1fr);
+      grid-auto-rows: 36vh;
+    }
+  }
+  @media (max-width: 640px) {
+    .gallery {
+      grid-template-columns: repeat(2, 1fr);
+      grid-auto-rows: 30vh;
+    }
+  }
+
+  /* ===== 모바일 뷰어 대응 ===== */
   @media (max-width: 768px) {
     /* 아래쪽 힌트 글씨 숨김 (모바일은 터치라 안내 불필요) */
     .viewer-hint { display: none; }
@@ -238,12 +261,6 @@
       width: 30px;
       height: 30px;
       font-size: 14px;
-    }
-
-    /* 갤러리 2열로 (모바일에서 5열은 너무 작음) */
-    .gallery {
-      grid-template-columns: repeat(2, 1fr);
-      grid-auto-rows: 30vh;
     }
   }
 </style>
@@ -274,7 +291,7 @@
 
 <button class="upload-btn" onclick="document.getElementById('fileInput').click()">
   <span class="dot-indicator"></span>
-  ⬆ 360° VR 업로드
+  ⬆ 프로젝트 업로드 (여러 장 = 한 집)
 </button>
 <input type="file" id="fileInput" accept="image/*" multiple />
 
@@ -323,8 +340,8 @@ try {
    IndexedDB 저장 (대용량 이미지 영구 저장)
 ============================================================ */
 const DB_NAME = "vr_gallery_db";
-const DB_VERSION = 1;
-const STORE_NAME = "scenes";
+const DB_VERSION = 2;
+const STORE_NAME = "projects";
 
 let dbInstance = null;
 
@@ -426,24 +443,46 @@ async function clearStorage() {
   }
 }
 
-let uploadedScenes = await loadFromStorage();
+let uploadedProjects = await loadFromStorage();
 
-/* 기본 장면 (영구 코드) */
-const baseScenes = [
-  // links: 이 공간에서 바닥 화살표로 이동할 수 있는 다른 공간들
-  //   nodeId = 이동할 씬의 id,  yaw = 화살표 방향(0~360deg),  pitch = 아래로 기운 정도(보통 -30deg)
-  { id: "scene_p1",  title: "거실 A",   panorama: "p-1.jpg",   thumb: "p-1.jpg",
-    links: [ { nodeId: "scene_p21", position: { yaw: "90deg", pitch: "-30deg" } } ] },
-  { id: "scene_p2",  title: "거실 B",   panorama: "p-2.jpg",   thumb: "p-2.jpg" },
-  { id: "scene_p21", title: "주방",     panorama: "p-2-1.jpg", thumb: "p-2-1.jpg",
-    links: [ { nodeId: "scene_p1",  position: { yaw: "270deg", pitch: "-30deg" } } ] },
-  { id: "scene_p3",  title: "침실",     panorama: "p-3.jpg",   thumb: "p-3.jpg" },
-  { id: "scene_p4",  title: "엔트런스", panorama: "p-4.jpg",   thumb: "p-4.jpg" },
-  { id: "scene_p5",  title: "라운지",   panorama: "p-5.jpg",   thumb: "p-5.jpg" },
+/* ============================================================
+   기본 프로젝트 (영구 코드)
+   - 프로젝트 1개 = 집 1채(또는 한 묶음).  title = 프로젝트명(직접 수정 가능)
+   - scenes[] = 그 프로젝트 안의 360° 공간들
+   - scenes[].links = 같은 프로젝트 안에서 바닥 화살표로 이동
+        nodeId = 이동할 씬 id,  yaw = 화살표 방향(0~360deg),  pitch = 아래로 기운 정도(보통 -30deg)
+============================================================ */
+const baseProjects = [
+  {
+    id: "proj_sample",
+    title: "샘플 모델하우스",          // ← 프로젝트명 (원하는 이름으로 바꾸세요)
+    scenes: [
+      { id: "s_p1",  title: "거실 A", panorama: "p-1.jpg",   thumb: "p-1.jpg",
+        links: [ { nodeId: "s_p21", position: { yaw: "90deg",  pitch: "-30deg" } } ] },
+      { id: "s_p21", title: "주방",   panorama: "p-2-1.jpg", thumb: "p-2-1.jpg",
+        links: [ { nodeId: "s_p1",  position: { yaw: "270deg", pitch: "-30deg" } } ] },
+    ]
+  },
+  {
+    id: "proj_b",
+    title: "프로젝트 B",
+    scenes: [
+      { id: "s_p2", title: "거실 B", panorama: "p-2.jpg", thumb: "p-2.jpg", links: [] },
+      { id: "s_p3", title: "침실",   panorama: "p-3.jpg", thumb: "p-3.jpg", links: [] },
+    ]
+  },
+  {
+    id: "proj_hall",
+    title: "분양홍보관",
+    scenes: [
+      { id: "s_p4", title: "엔트런스", panorama: "p-4.jpg", thumb: "p-4.jpg", links: [] },
+      { id: "s_p5", title: "라운지",   panorama: "p-5.jpg", thumb: "p-5.jpg", links: [] },
+    ]
+  },
 ];
 
-function getAllScenes() {
-  return [...baseScenes, ...uploadedScenes];
+function getAllProjects() {
+  return [...baseProjects, ...uploadedProjects];
 }
 
 /* ============================================================
@@ -452,23 +491,25 @@ function getAllScenes() {
 function renderGallery() {
   const gallery = document.getElementById("gallery");
   gallery.innerHTML = "";
-  const all = getAllScenes();
+  const all = getAllProjects();
 
-  all.forEach(scene => {
+  all.forEach(project => {
+    const cover = project.scenes[0];
+    const thumbSrc = cover ? (cover.thumb || cover.panorama) : "";
+    const isUploaded = project.id.startsWith("proj_upload_");
+    const count = project.scenes.length;
+
     const card = document.createElement("div");
     card.className = "card";
     card.onclick = (e) => {
       if (e.target.classList.contains("delete-btn")) return;
-      openViewer(scene.id);
+      openViewer(project.id);
     };
 
-    const thumbSrc = scene.thumb || scene.panorama;
-    const isUploaded = scene.id.startsWith("upload_");
-
     card.innerHTML = `
-      <img src="${thumbSrc}" alt="${scene.title}" />
-      ${isUploaded ? `<button class="delete-btn" data-id="${scene.id}">✕</button>` : ""}
-      <div class="label">${scene.title}</div>
+      <img src="${thumbSrc}" alt="${project.title}" />
+      ${isUploaded ? `<button class="delete-btn" data-id="${project.id}">✕</button>` : ""}
+      <div class="label">${project.title}<span class="count">${count}컷</span></div>
     `;
     gallery.appendChild(card);
   });
@@ -477,31 +518,30 @@ function renderGallery() {
     btn.onclick = async (e) => {
       e.stopPropagation();
       const id = btn.dataset.id;
-      uploadedScenes = uploadedScenes.filter(s => s.id !== id);
+      if (!confirm("이 프로젝트를 삭제할까요?")) return;
+      uploadedProjects = uploadedProjects.filter(p => p.id !== id);
       await deleteOne(id);
       renderGallery();
     };
   });
 
   const clearBtn = document.getElementById("clearBtn");
-  if (uploadedScenes.length > 0) {
-    clearBtn.classList.add("show");
-  } else {
-    clearBtn.classList.remove("show");
-  }
+  clearBtn.classList.toggle("show", uploadedProjects.length > 0);
 }
 
 /* VR 뷰어 */
 let psv = null;
 let isAutoRotating = true;
 
-function openViewer(sceneId) {
-  const all = getAllScenes();
-  const startScene = all.find(s => s.id === sceneId);
-  if (!startScene) return;
+function openViewer(projectId) {
+  const project = getAllProjects().find(p => p.id === projectId);
+  if (!project || !project.scenes.length) return;
+
+  const scenes = project.scenes;
+  const startSceneId = scenes[0].id;
 
   document.getElementById("viewer").classList.add("active");
-  document.getElementById("viewerTitle").textContent = startScene.title;
+  document.getElementById("viewerTitle").textContent = project.title + " · " + scenes[0].title;
   document.getElementById("viewerError").classList.remove("show");
 
   if (!libsReady) {
@@ -511,26 +551,18 @@ function openViewer(sceneId) {
     return;
   }
 
-  // 가상 투어 노드 (바닥 화살표 + 갤러리 띠로 이동)
-  const nodes = all.map(s => {
+  // 이 프로젝트 안의 공간들만 투어 노드로 (바닥 화살표 + 갤러리 띠로 이동)
+  const nodes = scenes.map(s => {
     return {
       id: s.id,
       panorama: s.panorama,
       thumbnail: s.thumb || s.panorama,
       name: s.title,
-      caption: s.title,
+      caption: project.title + " · " + s.title,
       links: s.links || [],
       gallery: true
     };
   });
-
-  // 갤러리용 아이템 (썸네일 띠에 표시)
-  const galleryItems = all.map(s => ({
-    id: s.id,
-    name: s.title,
-    panorama: s.panorama,
-    thumbnail: s.thumb || s.panorama
-  }));
 
   if (psv) {
     try { psv.destroy(); } catch (e) {}
@@ -563,7 +595,7 @@ function openViewer(sceneId) {
     });
 
     const tourPlugin = psv.getPlugin(VirtualTourPlugin);
-    tourPlugin.setNodes(nodes, sceneId);
+    tourPlugin.setNodes(nodes, startSceneId);
 
     const ar = psv.getPlugin(AutorotatePlugin);
     setTimeout(() => {
@@ -573,7 +605,7 @@ function openViewer(sceneId) {
     }, 1000);
 
     tourPlugin.addEventListener('node-changed', ({ node }) => {
-      document.getElementById("viewerTitle").textContent = node.name || node.id;
+      document.getElementById("viewerTitle").textContent = project.title + " · " + (node.name || node.id);
     });
   } catch (e) {
     console.error("뷰어 생성 실패:", e);
@@ -625,48 +657,47 @@ document.addEventListener("keydown", e => {
 
 /* 업로드 */
 function handleUpload(event) {
-  const files = Array.from(event.target.files);
-  if (files.length === 0) return;
+  // 한 프로젝트(집)로 묶을 파노라마들을 한 번에 선택해서 업로드
+  const files = Array.from(event.target.files).filter(f => f.type.startsWith("image/"));
+  if (files.length === 0) { event.target.value = ""; return; }
 
-  showToast(`${files.length}개 변환 중...`);
+  // 프로젝트명 직접 입력
+  const projTitle = prompt("프로젝트 이름을 입력하세요 (예: OO아파트 84A)", "새 프로젝트");
+  if (projTitle === null) { event.target.value = ""; return; }   // 취소
+
+  const projId = "proj_upload_" + Date.now();
+  showToast(`"${projTitle}" · ${files.length}장 변환 중...`);
+
+  const scenes = new Array(files.length);   // 선택 순서 유지
   let processed = 0;
-  let addedCount = 0;
 
-  files.forEach(file => {
-    if (!file.type.startsWith("image/")) {
-      processed++;
-      return;
-    }
-
+  files.forEach((file, idx) => {
     const reader = new FileReader();
     reader.onload = async (e) => {
-      const base64 = e.target.result;
-      const id = "upload_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7);
-      const name = file.name.replace(/\.[^.]+$/, "");
-
-      const scene = {
-        id: id,
-        title: name,
-        panorama: base64,
-        thumb: base64
+      scenes[idx] = {
+        id: projId + "_s" + idx,
+        title: file.name.replace(/\.[^.]+$/, ""),
+        panorama: e.target.result,
+        thumb: e.target.result,
+        links: []
       };
-
-      uploadedScenes.push(scene);
-      await saveOne(scene);
-
-      addedCount++;
       processed++;
 
       if (processed === files.length) {
+        const project = {
+          id: projId,
+          title: projTitle.trim() || "새 프로젝트",
+          scenes: scenes
+        };
+        uploadedProjects.push(project);
+        await saveOne(project);
         renderGallery();
-        showToast(`${addedCount}개 추가 · 새로고침해도 유지됨`);
+        showToast(`"${project.title}" 추가됨 (${files.length}컷) · 새로고침해도 유지됨`);
       }
     };
     reader.onerror = () => {
       processed++;
-      if (processed === files.length) {
-        renderGallery();
-      }
+      if (processed === files.length) renderGallery();
     };
     reader.readAsDataURL(file);
   });
@@ -675,8 +706,8 @@ function handleUpload(event) {
 }
 
 async function clearAll() {
-  if (!confirm("업로드한 모든 이미지를 삭제할까요?")) return;
-  uploadedScenes = [];
+  if (!confirm("업로드한 모든 프로젝트를 삭제할까요?")) return;
+  uploadedProjects = [];
   await clearStorage();
   renderGallery();
   showToast("모두 삭제됨");
