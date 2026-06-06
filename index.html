@@ -99,6 +99,31 @@
   .card:hover .delete-btn { opacity: 1; }
   .card .delete-btn:hover { background: rgba(220,50,50,0.9); }
 
+  /* ===== 드래그 정렬 ===== */
+  .card.dragging { opacity: 0.3; pointer-events: none; }
+  .card.drop-before::before,
+  .card.drop-after::after {
+    content: '';
+    position: absolute;
+    top: 0; bottom: 0;
+    width: 3px;
+    background: #fff;
+    z-index: 20;
+    pointer-events: none;
+  }
+  .card.drop-before::before { left: 0; }
+  .card.drop-after::after  { right: 0; }
+  #drag-ghost {
+    position: fixed;
+    pointer-events: none;
+    z-index: 9999;
+    border-radius: 4px;
+    overflow: hidden;
+    box-shadow: 0 16px 48px rgba(0,0,0,0.8);
+    opacity: 0.88;
+    transform: scale(1.04) rotate(1deg);
+  }
+
   .viewer {
     display: none;
     position: fixed;
@@ -538,20 +563,116 @@ function getAllProjects() {
 }
 
 /* ============================================================
-   갤러리 렌더링
+   마우스 추적 드래그 정렬
 ============================================================ */
-let dragSrcId = null;
-function reorderProjects(srcId, targetId) {
-  const ids = getAllProjects().map(p => p.id);
-  const from = ids.indexOf(srcId);
-  const to = ids.indexOf(targetId);
-  if (from < 0 || to < 0) return;
-  ids.splice(from, 1);
-  ids.splice(to, 0, srcId);
-  saveOrder(ids);
-  renderGallery();
+const DRAG_THRESHOLD = 6;
+const drag = {
+  pending: false, active: false, justDragged: false,
+  projId: null, cardEl: null, ghost: null,
+  startX: 0, startY: 0, offsetX: 0, offsetY: 0,
+  dropTarget: null, dropAfter: false
+};
+
+function prepareDrag(e, projId, cardEl) {
+  if (e.button !== undefined && e.button !== 0) return;
+  const cx = e.touches ? e.touches[0].clientX : e.clientX;
+  const cy = e.touches ? e.touches[0].clientY : e.clientY;
+  const rect = cardEl.getBoundingClientRect();
+  Object.assign(drag, {
+    pending: true, active: false, projId, cardEl,
+    startX: cx, startY: cy,
+    offsetX: cx - rect.left, offsetY: cy - rect.top
+  });
 }
 
+function activateDrag(cx, cy) {
+  drag.pending = false;
+  drag.active  = true;
+  drag.cardEl.classList.add("dragging");
+
+  const rect = drag.cardEl.getBoundingClientRect();
+  const ghost = drag.cardEl.cloneNode(true);
+  ghost.id = "drag-ghost";
+  ghost.style.cssText = `width:${rect.width}px;height:${rect.height}px;left:${cx - drag.offsetX}px;top:${cy - drag.offsetY}px`;
+  document.body.appendChild(ghost);
+  drag.ghost = ghost;
+}
+
+function onDragMove(e) {
+  const cx = e.touches ? e.touches[0].clientX : e.clientX;
+  const cy = e.touches ? e.touches[0].clientY : e.clientY;
+
+  if (drag.pending) {
+    if (Math.hypot(cx - drag.startX, cy - drag.startY) >= DRAG_THRESHOLD) {
+      e.preventDefault();
+      activateDrag(cx, cy);
+    }
+    return;
+  }
+  if (!drag.active) return;
+  e.preventDefault();
+
+  drag.ghost.style.left = (cx - drag.offsetX) + "px";
+  drag.ghost.style.top  = (cy - drag.offsetY)  + "px";
+
+  clearDropIndicators();
+  let nearest = null, nearestDist = Infinity;
+  document.querySelectorAll(".card:not(.dragging)").forEach(card => {
+    const r = card.getBoundingClientRect();
+    const dist = Math.hypot(cx - (r.left + r.width/2), cy - (r.top + r.height/2));
+    if (dist < nearestDist) {
+      nearestDist = dist;
+      nearest = card;
+      drag.dropAfter = cx > r.left + r.width / 2;
+    }
+  });
+  drag.dropTarget = nearest;
+  if (nearest) nearest.classList.add(drag.dropAfter ? "drop-after" : "drop-before");
+}
+
+function onDragEnd() {
+  if (!drag.pending && !drag.active) return;
+  const wasActive = drag.active;
+  drag.pending = drag.active = false;
+
+  if (drag.ghost) { drag.ghost.remove(); drag.ghost = null; }
+  document.querySelectorAll(".card.dragging").forEach(c => c.classList.remove("dragging"));
+  clearDropIndicators();
+
+  if (wasActive && drag.dropTarget) {
+    const ids = getAllProjects().map(p => p.id);
+    const fromIdx = ids.indexOf(drag.projId);
+    const toId = drag.dropTarget.dataset.id;
+    let toIdx = ids.indexOf(toId);
+    if (fromIdx !== -1 && toIdx !== -1 && fromIdx !== toIdx) {
+      if (drag.dropAfter) toIdx++;
+      ids.splice(fromIdx, 1);
+      ids.splice(toIdx > fromIdx ? toIdx - 1 : toIdx, 0, drag.projId);
+      saveOrder(ids);
+    }
+  }
+  drag.dropTarget = null;
+  if (wasActive) {
+    // mouseup 직후 발생하는 click이 뷰어를 열지 않도록 잠깐 막음
+    drag.justDragged = true;
+    setTimeout(() => { drag.justDragged = false; }, 0);
+    renderGallery();
+  }
+}
+
+function clearDropIndicators() {
+  document.querySelectorAll(".drop-before,.drop-after").forEach(el =>
+    el.classList.remove("drop-before","drop-after"));
+}
+
+document.addEventListener("mousemove", onDragMove);
+document.addEventListener("mouseup",   onDragEnd);
+document.addEventListener("touchmove", onDragMove, { passive: false });
+document.addEventListener("touchend",  onDragEnd);
+
+/* ============================================================
+   갤러리 렌더링
+============================================================ */
 function renderGallery() {
   const gallery = document.getElementById("gallery");
   gallery.innerHTML = "";
@@ -565,20 +686,23 @@ function renderGallery() {
 
     const card = document.createElement("div");
     card.className = "card";
-    card.draggable = true;
     card.dataset.id = project.id;
+    card.addEventListener("mousedown", e => {
+      if (e.target.classList.contains("delete-btn")) return;
+      if (e.target.classList.contains("rename-btn")) return;
+      prepareDrag(e, project.id, card);
+    });
+    card.addEventListener("touchstart", e => {
+      if (e.target.classList.contains("delete-btn")) return;
+      if (e.target.classList.contains("rename-btn")) return;
+      prepareDrag(e, project.id, card);
+    }, { passive: false });
     card.onclick = (e) => {
+      if (drag.active || drag.justDragged) return;
       if (e.target.classList.contains("delete-btn")) return;
       if (e.target.classList.contains("rename-btn")) return;
       openViewer(project.id);
     };
-    card.addEventListener("dragstart", () => { dragSrcId = project.id; });
-    card.addEventListener("dragover", (e) => { e.preventDefault(); });
-    card.addEventListener("drop", (e) => {
-      e.preventDefault();
-      if (dragSrcId && dragSrcId !== project.id) reorderProjects(dragSrcId, project.id);
-      dragSrcId = null;
-    });
 
     card.innerHTML = `
       <img src="${thumbSrc}" alt="${project.title}" />
