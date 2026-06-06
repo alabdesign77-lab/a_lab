@@ -344,24 +344,35 @@
 let Viewer, MarkersPlugin, VirtualTourPlugin, AutorotatePlugin, GalleryPlugin;
 let libsReady = false;
 let libLoadError = null;
+let libsPromise = null;
 
-try {
-  const core = await import('@photo-sphere-viewer/core');
-  const markers = await import('@photo-sphere-viewer/markers-plugin');
-  const tour = await import('@photo-sphere-viewer/virtual-tour-plugin');
-  const autorot = await import('@photo-sphere-viewer/autorotate-plugin');
-  const gal = await import('@photo-sphere-viewer/gallery-plugin');
+/* VR 라이브러리는 첫 뷰어를 열 때만 로드 (갤러리 첫 화면을 막지 않음 → 빠른 시작) */
+function ensureLibs() {
+  if (libsReady) return Promise.resolve(true);
+  if (libsPromise) return libsPromise;
+  libsPromise = (async () => {
+    try {
+      const core = await import('@photo-sphere-viewer/core');
+      const markers = await import('@photo-sphere-viewer/markers-plugin');
+      const tour = await import('@photo-sphere-viewer/virtual-tour-plugin');
+      const autorot = await import('@photo-sphere-viewer/autorotate-plugin');
+      const gal = await import('@photo-sphere-viewer/gallery-plugin');
 
-  Viewer = core.Viewer;
-  MarkersPlugin = markers.MarkersPlugin;
-  VirtualTourPlugin = tour.VirtualTourPlugin;
-  AutorotatePlugin = autorot.AutorotatePlugin;
-  GalleryPlugin = gal.GalleryPlugin;
+      Viewer = core.Viewer;
+      MarkersPlugin = markers.MarkersPlugin;
+      VirtualTourPlugin = tour.VirtualTourPlugin;
+      AutorotatePlugin = autorot.AutorotatePlugin;
+      GalleryPlugin = gal.GalleryPlugin;
 
-  libsReady = true;
-} catch (e) {
-  libLoadError = e.message || String(e);
-  console.error("PSV library load failed:", e);
+      libsReady = true;
+      return true;
+    } catch (e) {
+      libLoadError = e.message || String(e);
+      console.error("PSV library load failed:", e);
+      return false;
+    }
+  })();
+  return libsPromise;
 }
 
 /* ============================================================
@@ -661,7 +672,7 @@ function renderGallery() {
 let psv = null;
 let isAutoRotating = true;
 
-function openViewer(projectId) {
+async function openViewer(projectId) {
   const project = getAllProjects().find(p => p.id === projectId);
   if (!project || !project.scenes.length) return;
 
@@ -672,12 +683,16 @@ function openViewer(projectId) {
   document.getElementById("viewerTitle").textContent = project.title + " · " + scenes[0].title;
   document.getElementById("viewerError").classList.remove("show");
 
-  if (!libsReady) {
+  // 라이브러리가 아직 안 받아졌으면 여기서 로드 (첫 클릭 시 1회)
+  const ok = await ensureLibs();
+  if (!ok || !libsReady) {
     const errEl = document.getElementById("viewerError");
     errEl.textContent = "VR 라이브러리 로드 실패\n" + (libLoadError || "");
     errEl.classList.add("show");
     return;
   }
+  // 로드 중 사용자가 이미 닫았으면 중단
+  if (!document.getElementById("viewer").classList.contains("active")) return;
 
   // 이 프로젝트 안의 공간들만 투어 노드로 (바닥 화살표 + 갤러리 띠로 이동)
   const nodes = scenes.map(s => {
@@ -715,19 +730,20 @@ function openViewer(projectId) {
         VirtualTourPlugin.withConfig({
           positionMode: 'manual',
           preload: true,      // 인접 공간 미리 로드 → 이동 시 로딩 줄임
-          // 전환을 콜백으로 정밀 제어:
-          //  - 클릭한 바닥 화살표의 "방향(yaw)"으로 천천히 회전하며 페이드 → 걸어 들어가는 느낌
-          //  - 단, pitch는 0(수평)으로 도착 → 바닥을 먼저 보지 않음
+          // ★ 부드러운 페이드 전환:
+          //   - 줌인/줌아웃을 하지 않음 → "앞으로 갔다 뒤로 오는" 느낌이 원천적으로 없음
+          //   - 클릭한 화살표 방향(yaw)으로 천천히 회전하며 크로스페이드 → 자연스럽게 그쪽을 바라보며 이동
+          //   - pitch는 0(수평)으로 도착 → 바닥을 먼저 보지 않음
           transitionOptions: (toNode, fromNode, fromLink) => {
             let yaw = 0;
             const pos = fromLink && fromLink.position;
-            if (pos && pos.yaw != null) yaw = pos.yaw;          // "90deg" 같은 문자열/숫자 그대로
+            if (pos && pos.yaw != null) yaw = pos.yaw;          // "90deg" 같은 문자열/숫자
             return {
               showLoader: false,
               effect: 'fade',
-              speed: '6rpm',                  // 느리게 → 천천히 출발해서 도착하는 무빙감 (숫자↓ = 더 느림)
-              rotation: false,                // 바닥(아래) 화살표 쪽으로 카메라 안 꺾임
-              rotateTo: { yaw: yaw, pitch: 0 }, // 진행 방향으로 천천히 회전하며 수평 도착 (줌 왕복 없음 → 뒤로 안 빠짐)
+              speed: '2rpm',                       // 느긋하게 → 출발이 부드럽고 천천히
+              rotation: true,
+              rotateTo: { yaw: yaw, pitch: 0 },    // 진행 방향 + 수평으로 도착 (줌은 그대로 유지)
             };
           },
         }),
@@ -750,7 +766,7 @@ function openViewer(projectId) {
 
     tourPlugin.addEventListener('node-changed', ({ node }) => {
       document.getElementById("viewerTitle").textContent = project.title + " · " + (node.name || node.id);
-      // 시선 정렬(pitch:0)과 무빙은 transitionOptions가 처리 → 사후 보정 없음(줌 왕복 제거)
+      // 줌을 건드리지 않음 → 전진/후진 느낌 없이 그 자리에서 자연스럽게 도착
     });
   } catch (e) {
     console.error("뷰어 생성 실패:", e);
@@ -829,6 +845,20 @@ function handleUpload(event) {
       processed++;
 
       if (processed === files.length) {
+        // 올린 순서대로 바닥 화살표 자동 연결: 1↔2↔3 …
+        //  - 다음 칸: yaw 0도(정면) 방향 화살표
+        //  - 이전 칸: yaw 180도(뒤) 방향 화살표
+        scenes.forEach((sc, i) => {
+          const links = [];
+          if (i < scenes.length - 1) {
+            links.push({ nodeId: scenes[i + 1].id, position: { yaw: "0deg",   pitch: "-30deg" } });
+          }
+          if (i > 0) {
+            links.push({ nodeId: scenes[i - 1].id, position: { yaw: "180deg", pitch: "-30deg" } });
+          }
+          sc.links = links;
+        });
+
         const project = {
           id: projId,
           title: projTitle.trim() || "새 프로젝트",
@@ -870,11 +900,7 @@ function showToast(msg) {
 document.getElementById("fileInput").addEventListener("change", handleUpload);
 document.getElementById("clearBtn").addEventListener("click", clearAll);
 
-renderGallery();
-
-if (!libsReady) {
-  showToast("VR 라이브러리 로딩 실패");
-}
+renderGallery();   // 갤러리는 즉시 표시 (VR 라이브러리 로드를 기다리지 않음)
 </script>
 
 </body>
