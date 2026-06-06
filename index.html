@@ -404,7 +404,14 @@ async function clearStorage() {
 let uploadedScenes = await loadFromStorage();
 
 /* 기본 장면 (영구 코드) */
-const baseScenes = [];
+const baseScenes = [
+  { id: "scene_p1",  title: "거실 A",   panorama: "p-1.jpg",   thumb: "p-1.jpg" },
+  { id: "scene_p2",  title: "거실 B",   panorama: "p-2.jpg",   thumb: "p-2.jpg" },
+  { id: "scene_p21", title: "주방",     panorama: "p-2-1.jpg", thumb: "p-2-1.jpg" },
+  { id: "scene_p3",  title: "침실",     panorama: "p-3.jpg",   thumb: "p-3.jpg" },
+  { id: "scene_p4",  title: "엔트런스", panorama: "p-4.jpg",   thumb: "p-4.jpg" },
+  { id: "scene_p5",  title: "라운지",   panorama: "p-5.jpg",   thumb: "p-5.jpg" },
+];
 
 function getAllScenes() {
   return [...baseScenes, ...uploadedScenes];
