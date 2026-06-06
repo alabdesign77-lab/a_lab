@@ -722,12 +722,14 @@ function openViewer(projectId) {
             let yaw = 0;
             const pos = fromLink && fromLink.position;
             if (pos && pos.yaw != null) yaw = pos.yaw;          // "90deg" 같은 문자열/숫자 그대로
+            const curZoom = (psv && psv.getZoomLevel) ? psv.getZoomLevel() : 30;
             return {
               showLoader: false,
               effect: 'fade',
               speed: '8rpm',                  // 느리게 → 순간이동이 아니라 천천히 이동하는 느낌 (숫자↓ = 더 느림)
               rotation: false,                // 바닥(아래) 화살표 쪽으로 카메라 안 꺾임
               rotateTo: { yaw: yaw, pitch: 0 }, // 진행 방향 + 수평으로 도착
+              zoomTo: Math.min(curZoom + 35, 90), // 그 방향으로 다가가는(줌인) 느낌 → 걸어 들어가는 착시
             };
           },
         }),
@@ -750,8 +752,12 @@ function openViewer(projectId) {
 
     tourPlugin.addEventListener('node-changed', ({ node }) => {
       document.getElementById("viewerTitle").textContent = project.title + " · " + (node.name || node.id);
-      // 시선 정렬은 transitionOptions의 rotateTo(pitch:0)가 이미 처리 → 사후 rotate 불필요
-      // (이전의 150ms 후 rotate가 "바닥→수평으로 올라오는" 움직임의 원인이었음)
+      // 시선 정렬(pitch:0)은 transitionOptions의 rotateTo가 이미 처리.
+      // 도착하면 줌인했던 시야를 원래대로 부드럽게 넓힘 → 방에 "들어와서" 시야가 펼쳐지는 느낌
+      if (psv) {
+        try { psv.animate({ zoom: startZoom, speed: '3rpm' }); }
+        catch (e) { psv.zoom(startZoom); }
+      }
     });
   } catch (e) {
     console.error("뷰어 생성 실패:", e);
