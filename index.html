@@ -508,6 +508,11 @@ function openViewer(sceneId) {
     psv = null;
   }
 
+  // 모바일(세로 화면)에서는 더 넓게 보이도록 줌/FOV 조정
+  const isMobile = window.matchMedia("(max-width: 768px)").matches;
+  const startZoom = isMobile ? 0 : 30;   // 0 = 가장 넓게(줌아웃)
+  const maxFovVal = isMobile ? 110 : 100;
+
   try {
     psv = new Viewer({
       container: document.getElementById("psv-container"),
@@ -522,9 +527,9 @@ function openViewer(sceneId) {
           positionMode: 'manual',
         }),
       ],
-      defaultZoomLvl: 30,
+      defaultZoomLvl: startZoom,
       minFov: 20,
-      maxFov: 100,
+      maxFov: maxFovVal,
       navbar: false,
     });
 
@@ -580,7 +585,8 @@ window.toggleAutoRotate = () => {
 };
 window.resetView = () => {
   if (!psv) return;
-  psv.animate({ yaw: 0, pitch: 0, zoom: 30, speed: '2rpm' });
+  const isMobile = window.matchMedia("(max-width: 768px)").matches;
+  psv.animate({ yaw: 0, pitch: 0, zoom: isMobile ? 0 : 30, speed: '2rpm' });
 };
 window.closeViewer = closeViewer;
 
