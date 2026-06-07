@@ -730,20 +730,15 @@ async function openViewer(projectId) {
         VirtualTourPlugin.withConfig({
           positionMode: 'manual',
           preload: true,      // 인접 공간 미리 로드 → 이동 시 로딩 줄임
-          // ★ 부드러운 페이드 전환:
-          //   - 줌인/줌아웃을 하지 않음 → "앞으로 갔다 뒤로 오는" 느낌이 원천적으로 없음
-          //   - 클릭한 화살표 방향(yaw)으로 천천히 회전하며 크로스페이드 → 자연스럽게 그쪽을 바라보며 이동
-          //   - pitch는 0(수평)으로 도착 → 바닥을 먼저 보지 않음
-          transitionOptions: (toNode, fromNode, fromLink) => {
-            let yaw = 0;
-            const pos = fromLink && fromLink.position;
-            if (pos && pos.yaw != null) yaw = pos.yaw;          // "90deg" 같은 문자열/숫자
+          // ★ 단순 페이드 전환:
+          //   - 회전(rotation) 없음 → 그 자리에서 그대로 페이드아웃 → 페이드인
+          //   - 줌도 건드리지 않음 → 전진/후진 느낌 없음
+          //   - 방향으로 천천히 돌던 느낌(느리고 어색함) 제거
+          transitionOptions: () => {
             return {
               showLoader: false,
               effect: 'fade',
-              speed: '2rpm',                       // 느긋하게 → 출발이 부드럽고 천천히
-              rotation: true,
-              rotateTo: { yaw: yaw, pitch: 0 },    // 진행 방향 + 수평으로 도착 (줌은 그대로 유지)
+              rotation: false,    // 회전 안 함 → 바로 그 자리에서 크로스페이드
             };
           },
         }),
